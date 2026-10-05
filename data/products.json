@@ -1,0 +1,28 @@
+{
+  "products": [
+    {
+      "product_id": "P1001",
+      "name": "Running Shoes",
+      "category": "Footwear",
+      "price": 4999,
+      "currency": "INR",
+      "stock": 12
+    },
+    {
+      "product_id": "P1002",
+      "name": "Yoga Mat",
+      "category": "Fitness",
+      "price": 1499,
+      "currency": "INR",
+      "stock": 40
+    },
+    {
+      "product_id": "P1003",
+      "name": "Backpack",
+      "category": "Accessories",
+      "price": 2299,
+      "currency": "INR",
+      "stock": 18
+    }
+  ]
+}
