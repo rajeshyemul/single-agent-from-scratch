@@ -42,6 +42,7 @@ Application validates action
 Application executes tool
 
 ↓
+
 Observation is returned
 
 ↓
