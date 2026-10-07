@@ -29,16 +29,21 @@ The repo teaches the following architecture:
 
 Goal
 ↓
+
 Agent proposes action
 ↓
+
 Application validates action
 ↓
+
 Application executes tool
 ↓
 Observation is returned
 ↓
+
 Agent decides next action
 ↓
+
 Continue until completion or stop condition
 
 ## What is implemented in this version
