@@ -167,11 +167,13 @@ The loop behaves like this:
 	export OLLAMA_HOST="http://localhost:11434"
 	```
 
-5. Run a sample goal from the repository root:
+5. Run the agent from the repository root. It will prompt you to enter a goal:
 
 	```bash
-	python -c 'from src.agent.contracts import Goal; from src.agent.runner import AgentRunner; result = AgentRunner().run(Goal("Find a running shoe under 5000 INR in stock")); print(result["final_answer"])'
+	./.venv/bin/python main.py
 	```
+
+For example, enter `Find a running shoe under 5000 INR in stock` when prompted. Using the virtual environment's Python executable directly ensures the project dependencies are used.
 
 The first run requires the selected model to be available in Ollama. Change `OLLAMA_MODEL` to another model already pulled locally if desired.
 
