@@ -1,5 +1,9 @@
 # 04-single-agent-from-scratch
 
+[![Python 3.13](https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Local LLM: Ollama](https://img.shields.io/badge/LLM-Ollama%20local-black?logo=ollama&logoColor=white)](https://ollama.com/)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+
 A minimal single-agent learning project built from scratch to teach the core idea of an agent loop.
 
 ## Overview
@@ -52,14 +56,13 @@ This version includes:
 - repeated-observation protection
 - grounded final answer generation based on real tool output
 
-## Important note: this is deterministic, not a real LLM call
+## Stage B: local Ollama model
 
-This repository does not yet integrate with an actual model provider such as OpenAI, Anthropic, Azure OpenAI, or Ollama.
+The current working tree uses a locally running Ollama model to choose the next action. No OpenAI API key or cloud LLM service is used.
 
-The decision logic is intentionally deterministic and rule-based.
-It simulates the agent decision step using simple logic, without calling a real LLM.
+Stage A was the deterministic baseline. Its original implementation is preserved in the `v1.0.0` Git tag; the current working tree is the Stage B Ollama implementation.
 
-This is intentional for learning clarity.
+The model only proposes an action. The application validates the response, executes the selected product tool, records the observation, and checks the evidence before completing the goal.
 
 ## Product domain
 
@@ -105,11 +108,13 @@ The runner is responsible for:
 - deciding whether to finish or continue
 - stopping on safety constraints
 
-### LLM layer placeholder
-The decision policy is currently implemented in:
+### LLM layer
+The local model integration is implemented in:
 - src/llm/client.py
+- src/llm/prompts.py
+- src/llm/schema.py
 
-This file behaves like a minimal policy engine, but it is not a real external LLM integration.
+The prompt provides the goal, product catalog, available actions, and observations. Ollama returns a schema-constrained JSON action, which is parsed and validated before the runner can execute it.
 
 ## Minimal loop behavior
 
@@ -120,14 +125,43 @@ A typical query is:
 The loop behaves like this:
 
 1. Goal is created.
-2. The agent decides to fetch product P1001.
-3. The app validates the action.
-4. The app executes get_product("P1001").
-5. The result is stored as an observation.
-6. The agent checks whether the result satisfies the goal.
-7. If price is under budget, it checks inventory.
-8. If stock is positive and the goal is met, the agent finishes.
-9. If the goal cannot be met, or the loop is unsafe, the agent exits with a failure or max-iteration state.
+2. Ollama proposes one action using the goal and observations so far.
+3. The app validates the action and executes the selected product tool.
+4. The tool result is stored as an observation and supplied to Ollama on the next decision.
+5. The app completes only when its evidence checks satisfy the supported goal conditions; otherwise it continues or stops safely.
+
+### Install and run
+
+1. Install [Ollama](https://ollama.com/download) and download the default model:
+
+	```bash
+	ollama pull llama3.2:latest
+	```
+
+2. Start Ollama using the desktop application, or run `ollama serve` if the service is not already running.
+
+3. Create and activate a Python environment, then install project dependencies:
+
+	```bash
+	python3 -m venv .venv
+	source .venv/bin/activate
+	python -m pip install -r requirements.txt
+	```
+
+4. Optionally choose a different locally available model or Ollama host:
+
+	```bash
+	export OLLAMA_MODEL="llama3.2:latest"
+	export OLLAMA_HOST="http://localhost:11434"
+	```
+
+5. Run a sample goal from the repository root:
+
+	```bash
+	python -c 'from src.agent.contracts import Goal; from src.agent.runner import AgentRunner; result = AgentRunner().run(Goal("Find a running shoe under 5000 INR in stock")); print(result["final_answer"])'
+	```
+
+The first run requires the selected model to be available in Ollama. Change `OLLAMA_MODEL` to another model already pulled locally if desired.
 
 ## Safety rules implemented
 
@@ -149,7 +183,7 @@ This project intentionally does not include:
 - MCP integration
 - production planning systems
 - long-term context memory
-- real model API integration
+- hosting or managing the Ollama service
 
 ## Project structure
 
@@ -173,7 +207,9 @@ This project intentionally does not include:
 │   │   └── validation.py
 │   └── llm/
 │       ├── __init__.py
-│       └── client.py
+│       ├── client.py
+│       ├── prompts.py
+│       └── schema.py
 ├── tests/
 │   ├── __init__.py
 │   └── test_agent_contract.py
@@ -185,12 +221,10 @@ This project intentionally does not include:
 Run the test suite with:
 
 ```bash
-cd /path/to/04-single-agent-from-scratch
-python3 -m pytest -q
+python -m pytest -q
 ```
 
-Current status:
-- 7 tests passing
+The test suite uses controlled Ollama responses and scripted actions, so it does not require a running Ollama service or model.
 
 ## Summary
 
@@ -198,5 +232,4 @@ This repo is a working minimal single-agent loop that teaches the exact core pat
 
 Goal → Action → Observation → Decision → Repeat → Finish
 
-It is intentionally small, explicit, and easy to understand.
-It is a solid foundation for the next step, where a real model-backed agent can replace the deterministic policy with actual LLM-driven action selection.
+It is intentionally small, explicit, and easy to understand. Stage A's deterministic baseline is preserved in Git history; Stage B adds local model-backed action selection without allowing the model to execute tools directly.

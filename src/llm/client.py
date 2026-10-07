@@ -1,107 +1,137 @@
-from typing import List
+import json
+import os
+from typing import Any, List
+
+import ollama
 
 from src.agent.contracts import Action, FinalAnswer, Goal, Observation
+from src.llm.prompts import build_decision_messages
+from src.llm.schema import ACTION_RESPONSE_SCHEMA
+from src.tools.product_tools import get_all_products
+from src.tools.validation import validate_action
+
+
+def _combined_product_facts(observations: List[Observation]) -> List[dict[str, Any]]:
+    facts_by_product: dict[str, dict[str, Any]] = {}
+    for observation in observations:
+        result = observation.result
+        if not isinstance(result, dict):
+            continue
+
+        product_id = result.get("product_id")
+        if product_id is None:
+            continue
+
+        facts_by_product.setdefault(product_id, {}).update(result)
+
+    return list(facts_by_product.values())
 
 
 class LLMClient:
     """
-    Minimal decision policy for a single-agent loop.
-    This is intentionally small and deterministic.
+    Local Ollama-backed decision client for a single-agent loop.
     """
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        model: str | None = None,
+        host: str | None = None,
+        client: Any | None = None,
+    ):
+        self.model = model or os.getenv("OLLAMA_MODEL", "llama3.2:latest")
+        ollama_host = host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.client = client if client is not None else ollama.Client(host=ollama_host)
 
     def decide_next_action(self, goal: Goal, observations: List[Observation]) -> Action:
-        goal_text = goal.text.lower()
+        messages = build_decision_messages(
+            goal,
+            observations,
+            products=get_all_products(),
+        )
 
-        if not observations:
-            if "running shoes" in goal_text or "running shoe" in goal_text:
-                return Action(tool_name="get_product", arguments={"product_id": "P1001"})
-            if "yoga mat" in goal_text:
-                return Action(tool_name="get_product", arguments={"product_id": "P1002"})
-            if "backpack" in goal_text:
-                return Action(tool_name="get_product", arguments={"product_id": "P1003"})
-            return Action(tool_name="get_product", arguments={"product_id": "P1001"})
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=messages,
+                format=ACTION_RESPONSE_SCHEMA,
+                options={"temperature": 0},
+                stream=False,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Ollama request failed for model {self.model!r}. "
+                "Check that Ollama is running and the model is available."
+            ) from exc
 
-        last_result = observations[-1].result
+        content = response.message.content
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Ollama returned an empty or invalid action response.")
 
-        if isinstance(last_result, dict) and "error" in last_result:
-            return Action(tool_name="finish", arguments={})
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Ollama returned malformed JSON for the action.") from exc
 
-        # If we already have the product record, decide next based on goal.
-        if isinstance(last_result, dict) and "product_id" in last_result:
-            if "under" in goal_text and "5000" in goal_text:
-                if last_result.get("price", 0) <= 5000:
-                    return Action(
-                        tool_name="check_inventory",
-                        arguments={"product_id": last_result["product_id"]},
-                    )
-                return Action(tool_name="finish", arguments={})
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"tool_name", "arguments"}
+            or not isinstance(payload["tool_name"], str)
+            or not isinstance(payload["arguments"], dict)
+        ):
+            raise ValueError("Ollama returned an action with an invalid structure.")
 
-            if "stock" in goal_text or "in stock" in goal_text:
-                return Action(
-                    tool_name="check_inventory",
-                    arguments={"product_id": last_result["product_id"]},
-                )
+        action = Action(
+            tool_name=payload["tool_name"],
+            arguments=payload["arguments"],
+        )
+        if not validate_action(action):
+            raise ValueError("Ollama returned an action that failed validation.")
 
-        # If the last observation was stock info, decide whether the goal is satisfied.
-        if isinstance(last_result, dict) and "stock" in last_result:
-            if self.goal_is_complete(goal, observations):
-                return Action(tool_name="finish", arguments={})
-            return Action(tool_name="finish", arguments={})
-
-        if self.goal_is_complete(goal, observations):
-            return Action(tool_name="finish", arguments={})
-
-        return Action(tool_name="finish", arguments={})
+        return action
 
     def goal_is_complete(self, goal: Goal, observations: List[Observation]) -> bool:
         goal_text = goal.text.lower()
+        requires_price = "under" in goal_text and "5000" in goal_text
+        requires_stock = "stock" in goal_text
 
-        if "under" in goal_text and "5000" in goal_text:
-            for obs in observations:
-                result = obs.result
-                if not isinstance(result, dict):
-                    continue
+        if not requires_price and not requires_stock:
+            return False
 
-                price = result.get("price")
-                stock = result.get("stock")
-                product_name = result.get("name")
-
-                if price is not None and stock is not None and product_name:
-                    if price <= 5000 and stock > 0:
-                        return True
-
-        if "in stock" in goal_text:
-            for obs in observations:
-                result = obs.result
-                if isinstance(result, dict):
-                    stock = result.get("stock")
-                    if stock is not None and stock > 0:
-                        return True
+        for facts in _combined_product_facts(observations):
+            price = facts.get("price")
+            stock = facts.get("stock")
+            price_satisfied = not requires_price or (
+                isinstance(price, (int, float)) and price <= 5000
+            )
+            stock_satisfied = not requires_stock or (
+                isinstance(stock, (int, float)) and stock > 0
+            )
+            if price_satisfied and stock_satisfied:
+                return True
 
         return False
 
     def build_final_answer(self, goal: Goal, observations: List[Observation]) -> FinalAnswer:
-        goal_text = goal.text.lower()
+        for facts in _combined_product_facts(observations):
+            product_name = facts.get("name")
+            price = facts.get("price")
+            stock = facts.get("stock")
 
-        for obs in observations:
-            result = obs.result
-            if not isinstance(result, dict):
+            if not product_name:
                 continue
 
-            price = result.get("price")
-            stock = result.get("stock")
-            product_name = result.get("name")
+            details = []
+            if price is not None:
+                details.append(f"price ₹{price}")
+            if stock is not None:
+                details.append(f"stock {stock}")
 
-            if product_name and price is not None and stock is not None:
-                if price <= 5000 and stock > 0:
-                    return FinalAnswer(
-                        text=(
-                            f"I found {product_name} at ₹{price} with stock {stock}. "
-                            "This satisfies the goal."
-                        )
+            if details:
+                return FinalAnswer(
+                    text=(
+                        f"I found {product_name} with {' and '.join(details)}. "
+                        "This satisfies the goal."
                     )
+                )
 
         return FinalAnswer(text="I could not complete the goal with the available observations.")

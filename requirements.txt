@@ -1,2 +1,2 @@
-# No heavy dependencies for the first phase.
-# We will add needed packages only when the actual agent loop starts.
+# Ollama client for local LLM inference in Stage B.
+ollama

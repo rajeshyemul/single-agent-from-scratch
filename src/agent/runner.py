@@ -30,16 +30,16 @@ class AgentRunner:
         - execute the real tool
         - return the result
         """
-        if action.tool_name == "finish":
-            return {
-                "status": "success",
-                "result": {"message": "Goal completed"},
-            }
-
         if not validate_action(action):
             return {
                 "status": "error",
                 "message": "Invalid action or missing required arguments.",
+            }
+
+        if action.tool_name == "finish":
+            return {
+                "status": "success",
+                "result": {"message": "Goal completed"},
             }
 
         tool_map = {
@@ -77,7 +77,24 @@ class AgentRunner:
         observations: list[Observation] = []
 
         for iteration in range(max_iterations):
-            next_action = self.llm_client.decide_next_action(goal, observations)
+            try:
+                next_action = self.llm_client.decide_next_action(goal, observations)
+            except Exception as exc:
+                return {
+                    "status": "failed",
+                    "final_answer": (
+                        "Goal could not be completed because the local LLM "
+                        f"decision failed: {exc}"
+                    ),
+                    "observations": observations,
+                }
+
+            if not validate_action(next_action):
+                return {
+                    "status": "failed",
+                    "final_answer": "The local LLM proposed an invalid action, so it was not executed.",
+                    "observations": observations,
+                }
 
             if next_action.tool_name == "finish":
                 if self.llm_client.goal_is_complete(goal, observations):
