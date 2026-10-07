@@ -28,20 +28,26 @@ We are building the smallest possible working loop so the underlying pattern is 
 The repo teaches the following architecture:
 
 Goal
+
 ↓
 
 Agent proposes action
+
 ↓
 
 Application validates action
+
 ↓
 
 Application executes tool
+
 ↓
 Observation is returned
+
 ↓
 
 Agent decides next action
+
 ↓
 
 Continue until completion or stop condition
